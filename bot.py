@@ -1,17 +1,14 @@
 import os
 import requests
-from telegram import Update, Bot
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram import Update
+from telegram.ext import Application, CommandHandler, CallbackContext
 from datetime import datetime
-# Получаем токен из переменных окружения
+
+# Автопоиск токена
 TELEGRAM_TOKEN = os.environ.get('TG_TOKEN')
-# Временное решение для Render (удалите после настройки)
 if not TELEGRAM_TOKEN:
     TELEGRAM_TOKEN = "8250242729:AAEkH3O9ZJftDj1wtG84lckLB2VVnd3bgNs"  # ваш токен
     print("⚠️ Внимание: используется токен из кода!")
-    
-if not TELEGRAM_TOKEN:
-    raise ValueError("Токен бота не установлен! Укажите TG_TOKEN в переменных окружения.")
 
 NBRB_API_URL = "https://api.nbrb.by/exrates/rates/USD?parammode=2"
 
@@ -40,14 +37,12 @@ def rate_command(update: Update, context: CallbackContext):
 
 def main():
     print("🟢 Бот запущен и работает 24/7")
-    updater = Updater(token=TELEGRAM_TOKEN)
-    dispatcher = updater.dispatcher
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    dispatcher.add_handler(CommandHandler("start", start_command))
-    dispatcher.add_handler(CommandHandler("rate", rate_command))
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("rate", rate_command))
     
-    updater.start_polling()
-    updater.idle()
+    application.run_polling()
 
 if __name__ == "__main__":
     main()

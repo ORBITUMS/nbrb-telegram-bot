@@ -3,9 +3,13 @@ import requests
 from telegram import Update, Bot
 from telegram.ext import Updater, CommandHandler, CallbackContext
 from datetime import datetime
-
 # Получаем токен из переменных окружения
 TELEGRAM_TOKEN = os.environ.get('TG_TOKEN')
+# Временное решение для Render (удалите после настройки)
+if not TELEGRAM_TOKEN:
+    TELEGRAM_TOKEN = "8250242729:AAEkH3O9ZJftDj1wtG84lckLB2VVnd3bgNs"  # ваш токен
+    print("⚠️ Внимание: используется токен из кода!")
+    
 if not TELEGRAM_TOKEN:
     raise ValueError("Токен бота не установлен! Укажите TG_TOKEN в переменных окружения.")
 

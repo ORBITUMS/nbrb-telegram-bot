@@ -134,18 +134,36 @@ async def send_rates(update: Update, context: CallbackContext):
     """Отправляет текущие курсы валют"""
     rates_msg = get_currency_rates()
     
-    # Создаем клавиатуру для обновления
-    keyboard = [
-        [InlineKeyboardButton("🔄 Обновить", callback_data='refresh_rates')],
-        [InlineKeyboardButton("ℹ️ О боте", callback_data='about')]
-    ]
+    # Создаем клавиатуру для обновления (только кнопка "Обновить")
+    keyboard = [[InlineKeyboardButton("🔄 Обновить", callback_data='refresh_rates')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=rates_msg,
-        reply_markup=reply_markup
-    )
+    # Если это обновление через callback, редактируем существующее сообщение
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            await context.bot.edit_message_text(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                text=rates_msg,
+                reply_markup=reply_markup
+            )
+        except TelegramError:
+            # Если редактирование не удалось, отправляем новое сообщение
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=rates_msg,
+                reply_markup=reply_markup
+            )
+    else:
+        # Для обычных команд отправляем новое сообщение
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=rates_msg,
+            reply_markup=reply_markup
+        )
 
 async def button_handler(update: Update, context: CallbackContext):
     """Обработчик нажатий на inline-кнопки"""
@@ -153,29 +171,8 @@ async def button_handler(update: Update, context: CallbackContext):
     await query.answer()
     
     if query.data == 'get_rates' or query.data == 'refresh_rates':
-        # Удаляем предыдущее сообщение с кнопками
-        try:
-            await context.bot.delete_message(
-                chat_id=query.message.chat_id,
-                message_id=query.message.message_id
-            )
-        except TelegramError:
-            pass  # Если сообщение уже старое, пропускаем ошибку
-        
         # Отправляем обновленные курсы
         await send_rates(update, context)
-    
-    elif query.data == 'about':
-        about_msg = (
-            "ℹ️ Бот курсов валют НБРБ\n\n"
-            "Предоставляет актуальные курсы:\n"
-            "- Доллара США (USD)\n"
-            "- Евро (EUR)\n"
-            "- 100 Российских рублей (RUB)\n\n"
-            "Данные обновляются в режиме реального времени\n"
-            "с сайта Национального Банка Республики Беларусь"
-        )
-        await query.edit_message_text(text=about_msg)
 
 async def safe_send_message(context: CallbackContext, chat_id: int, text: str):
     """Отправка сообщения с обработкой ошибок Telegram"""

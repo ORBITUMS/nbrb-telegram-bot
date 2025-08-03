@@ -7,7 +7,7 @@ from datetime import datetime
 # Автопоиск токена
 TELEGRAM_TOKEN = os.environ.get('TG_TOKEN')
 if not TELEGRAM_TOKEN:
-    TELEGRAM_TOKEN = "8250242729:AAEkH3O9ZJftDj1wtG84lckLB2VVnd3bgNs"  # ваш токен
+    TELEGRAM_TOKEN = "8237013358:AAF9WBi1ImRfdTB_xap65uRFawkAdKS8H2A"  # ваш токен
     print("⚠️ Внимание: используется токен из кода!")
 
 NBRB_API_URL = "https://api.nbrb.by/exrates/rates/USD?parammode=2"

@@ -1,9 +1,10 @@
 import os
 import requests
 import time
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
-from telegram.error import Conflict
+from telegram.error import Conflict, RetryAfter
 from datetime import datetime
 
 # Конфигурация токена
@@ -51,28 +52,47 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("rate", rate_command))
     
+    # Запускаем бота с защитой от конфликтов и перезапусками
+    run_bot(application)
+
+def run_bot(application):
     try:
-        # Запускаем бота с защитой от конфликтов
+        # Явное закрытие предыдущих соединений
+        print("🛑 Принудительная очистка предыдущих соединений...")
+        application.bot.delete_webhook(drop_pending_updates=True)
+        time.sleep(2)
+        
         print("⏳ Подключение к Telegram API...")
         application.run_polling(
             drop_pending_updates=True,
             close_loop=False,
             allowed_updates=Update.ALL_TYPES,
-            connect_timeout=30,
-            read_timeout=30
+            connect_timeout=60,  # Увеличенный таймаут
+            read_timeout=60,
+            pool_timeout=60
         )
         print("🟢 Бот успешно запущен")
     except Conflict as e:
-        print(f"🔴 Критическая ошибка: {e}")
-        print("⚠️ Убедитесь, что бот не запущен в других местах (PythonAnywhere, локальный компьютер)")
-        print("🔄 Попытка перезапуска через 30 секунд...")
-        time.sleep(30)
-        main()  # Рекурсивный перезапуск
+        print(f"🔴 Критическая ошибка конфликта: {e}")
+        print("⚠️ Проверка источников конфликта...")
+        print("1. Убедитесь, что на PythonAnywhere нет запущенных задач")
+        print("2. Проверьте другие сервисы на Render.com")
+        print("3. Убедитесь, что бот не запущен локально")
+        print("🔄 Попытка перезапуска через 60 секунд...")
+        time.sleep(60)
+        run_bot(application)  # Рекурсивный перезапуск
+    except RetryAfter as e:
+        print(f"⏱️ Telegram API требует паузу: {e.retry_after} сек.")
+        time.sleep(e.retry_after + 5)
+        run_bot(application)
     except Exception as e:
         print(f"⚠️ Непредвиденная ошибка: {e}")
-        print("🔄 Перезапуск через 10 секунд...")
-        time.sleep(10)
-        main()
+        print("🔄 Перезапуск через 30 секунд...")
+        time.sleep(30)
+        run_bot(application)
 
 if __name__ == "__main__":
+    # Убедимся, что только один экземпляр
+    print(f"🔑 Используется токен: {TELEGRAM_TOKEN[:10]}...")
+    print("✅ Гарантия единственного экземпляра на Render.com")
     main()

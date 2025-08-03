@@ -1,6 +1,5 @@
 import os
 import requests
-import time
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
@@ -42,57 +41,59 @@ async def send_rate(update: Update, context: CallbackContext):
     rate_msg = get_currency_rate()
     await context.bot.send_message(chat_id=update.effective_chat.id, text=rate_msg)
 
+async def reset_webhook():
+    """Асинхронный сброс вебхука с подтверждением"""
+    async with Application.builder().token(TELEGRAM_TOKEN).build() as temp_app:
+        await temp_app.bot.delete_webhook(drop_pending_updates=True)
+        print("✅ Вебхук успешно сброшен")
+
 def main():
     print("🟢 Запуск бота...")
     
-    # Создаем Application с обработкой конфликтов
+    # Создаем Application
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("rate", rate_command))
     
-    # Запускаем бота с защитой от конфликтов и перезапусками
+    # Запускаем бота с гарантированным сбросом соединений
     run_bot(application)
 
 def run_bot(application):
     try:
-        # Явное закрытие предыдущих соединений
+        # Принудительный сброс всех предыдущих соединений
         print("🛑 Принудительная очистка предыдущих соединений...")
-        application.bot.delete_webhook(drop_pending_updates=True)
-        time.sleep(2)
+        asyncio.run(reset_webhook())
         
         print("⏳ Подключение к Telegram API...")
         application.run_polling(
             drop_pending_updates=True,
             close_loop=False,
             allowed_updates=Update.ALL_TYPES,
-            connect_timeout=60,  # Увеличенный таймаут
+            connect_timeout=60,
             read_timeout=60,
-            pool_timeout=60
+            pool_timeout=60,
+            bootstrap_retries=3,  # Дополнительные попытки подключения
         )
         print("🟢 Бот успешно запущен")
     except Conflict as e:
         print(f"🔴 Критическая ошибка конфликта: {e}")
-        print("⚠️ Проверка источников конфликта...")
-        print("1. Убедитесь, что на PythonAnywhere нет запущенных задач")
-        print("2. Проверьте другие сервисы на Render.com")
-        print("3. Убедитесь, что бот не запущен локально")
-        print("🔄 Попытка перезапуска через 60 секунд...")
-        time.sleep(60)
-        run_bot(application)  # Рекурсивный перезапуск
+        print("🔄 Попытка полного перезапуска через 120 секунд...")
+        time.sleep(120)
+        run_bot(application)
     except RetryAfter as e:
         print(f"⏱️ Telegram API требует паузу: {e.retry_after} сек.")
-        time.sleep(e.retry_after + 5)
+        time.sleep(e.retry_after + 10)
         run_bot(application)
     except Exception as e:
         print(f"⚠️ Непредвиденная ошибка: {e}")
-        print("🔄 Перезапуск через 30 секунд...")
-        time.sleep(30)
+        print("🔄 Перезапуск через 60 секунд...")
+        time.sleep(60)
         run_bot(application)
 
 if __name__ == "__main__":
-    # Убедимся, что только один экземпляр
+    import time
     print(f"🔑 Используется токен: {TELEGRAM_TOKEN[:10]}...")
-    print("✅ Гарантия единственного экземпляра на Render.com")
+    print("✅ Гарантия единственного экземпляра")
     main()

@@ -3,16 +3,17 @@ import sys
 import requests
 import asyncio
 import threading
+import time  # Перенесён вверх
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
-from telegram.error import Conflict, RetryAfter
+from telegram.error import Conflict, RetryAfter, TelegramError
 from datetime import datetime
 
 # Улучшенная проверка переменных окружения
 def check_environment():
     """Проверяет обязательные переменные окружения"""
-    required_vars = ['TG_TOKEN']
+    required_vars = ['TG_TOKEN', 'PORT']  # Добавлен PORT
     missing = [var for var in required_vars if var not in os.environ]
     
     if missing:
@@ -23,10 +24,11 @@ def check_environment():
         print("3. Добавьте переменные:")
         print("   - Key: TG_TOKEN")
         print("   - Value: ваш_токен_бота")
+        print("   - Key: PORT")
+        print("   - Value: 10000")
         print("4. Нажмите 'Save Changes'")
         print("5. В разделе 'Advanced' добавьте:")
         print("   - Health Check Path: /health")
-        print("   - PORT: 10000")
         print("6. Перезапустите сервис")
         sys.exit(1)
 
@@ -36,6 +38,7 @@ def check_environment():
 check_environment()
 
 TELEGRAM_TOKEN = os.environ['TG_TOKEN']
+PORT = int(os.environ['PORT'])  # Используем порт из переменной окружения
 NBRB_API_URL = "https://api.nbrb.by/exrates/rates/USD?parammode=2"
 
 # Health check сервер
@@ -51,9 +54,8 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 def run_health_server():
     """Запуск HTTP-сервера для проверок работоспособности"""
-    server = HTTPServer(('0.0.0.0', 10000), HealthHandler)
-    print(f"🩺 Health check сервер запущен на порту 10000")
-    print(f"🌐 Проверить: https://your-service-name.onrender.com/health")
+    server = HTTPServer(('0.0.0.0', PORT), HealthHandler)  # Используем PORT
+    print(f"🩺 Health check сервер запущен на порту {PORT}")
     server.serve_forever()
 
 def get_currency_rate():
@@ -74,7 +76,7 @@ async def start_command(update: Update, context: CallbackContext):
         "Я бот для отслеживания курса доллара от Нацбанка РБ.\n\n"
         "Просто нажми /rate чтобы получить текущий курс"
     )
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome_msg)
+    await safe_send_message(context, update.effective_chat.id, welcome_msg)
     await send_rate(update, context)
 
 async def rate_command(update: Update, context: CallbackContext):
@@ -82,17 +84,22 @@ async def rate_command(update: Update, context: CallbackContext):
 
 async def send_rate(update: Update, context: CallbackContext):
     rate_msg = get_currency_rate()
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=rate_msg)
+    await safe_send_message(context, update.effective_chat.id, rate_msg)
 
-async def reset_webhook():
-    """Сброс предыдущих подключений"""
-    async with Application.builder().token(TELEGRAM_TOKEN).build() as temp_app:
-        await temp_app.bot.delete_webhook(drop_pending_updates=True)
-        print("✅ Все предыдущие соединения сброшены")
+async def safe_send_message(context: CallbackContext, chat_id: int, text: str):
+    """Отправка сообщения с обработкой ошибок Telegram"""
+    try:
+        await context.bot.send_message(chat_id=chat_id, text=text)
+    except RetryAfter as e:
+        print(f"⚠️ Telegram API limit exceeded. Waiting {e.retry_after} seconds...")
+        await asyncio.sleep(e.retry_after)
+        await safe_send_message(context, chat_id, text)
+    except TelegramError as e:
+        print(f"⚠️ Telegram error: {e}")
 
 def main():
     print("="*50)
-    print("🚀 Запуск валютного бота")
+    print(f"🚀 Запуск валютного бота на порту {PORT}")
     print("="*50)
     
     # Запуск health check сервера
@@ -109,27 +116,23 @@ def main():
 
 def run_bot(application):
     try:
-        # Сброс предыдущих соединений
-        asyncio.run(reset_webhook())
-        
         print("🔐 Установка защищенного подключения к Telegram...")
         application.run_polling(
             drop_pending_updates=True,
-            connect_timeout=60,
             read_timeout=60,
-            bootstrap_retries=3
+            bootstrap_retries=3,
+            allowed_updates=Update.ALL_TYPES
         )
         print("✅ Бот успешно запущен и работает")
         
-    except Conflict:
-        print("⚠️ Обнаружен конфликт подключений. Перезапуск через 30 сек...")
+    except Conflict as e:
+        print(f"⚠️ Обнаружен конфликт подключений: {e}. Перезапуск через 30 сек...")
         time.sleep(30)
         run_bot(application)
     except Exception as e:
-        print(f"⛑️ Восстановление после ошибки: {e}")
+        print(f"⛑️ Критическая ошибка: {e}. Перезапуск через 15 сек...")
         time.sleep(15)
         run_bot(application)
 
 if __name__ == "__main__":
-    import time
     main()

@@ -1,17 +1,33 @@
 import os
 import requests
 import asyncio
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
 from telegram.error import Conflict, RetryAfter
 from datetime import datetime
 
-# Конфигурация токена
-TELEGRAM_TOKEN = os.environ.get('TG_TOKEN') or "8237013358:AAF9WBi1ImRfdTB_xap65uRFawkAdKS8H2A"
-if not os.environ.get('TG_TOKEN'):
-    print("⚠️ Внимание: используется токен из кода!")
-
+# Безопасное получение токена из переменных окружения
+TELEGRAM_TOKEN = os.environ['TG_TOKEN']
 NBRB_API_URL = "https://api.nbrb.by/exrates/rates/USD?parammode=2"
+
+# Health check сервер для Render
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+def run_health_server():
+    """Запуск HTTP-сервера для health checks"""
+    server = HTTPServer(('0.0.0.0', 10000), HealthHandler)
+    print(f"🩺 Health check сервер запущен на порту 10000")
+    server.serve_forever()
 
 def get_currency_rate():
     try:
@@ -42,58 +58,52 @@ async def send_rate(update: Update, context: CallbackContext):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=rate_msg)
 
 async def reset_webhook():
-    """Асинхронный сброс вебхука с подтверждением"""
+    """Сброс всех предыдущих подключений"""
     async with Application.builder().token(TELEGRAM_TOKEN).build() as temp_app:
         await temp_app.bot.delete_webhook(drop_pending_updates=True)
-        print("✅ Вебхук успешно сброшен")
+        print("✅ Все предыдущие соединения сброшены")
 
 def main():
-    print("🟢 Запуск бота...")
+    print("="*50)
+    print("🛡️ Безопасный запуск: токен получен из переменных окружения")
+    print("🟢 Инициализация бота...")
+    print("="*50)
     
-    # Создаем Application
+    # Запуск health check сервера в отдельном потоке
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    
+    # Инициализация бота
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("rate", rate_command))
     
-    # Запускаем бота с гарантированным сбросом соединений
+    # Запуск бота
     run_bot(application)
 
 def run_bot(application):
     try:
-        # Принудительный сброс всех предыдущих соединений
-        print("🛑 Принудительная очистка предыдущих соединений...")
+        # Сброс предыдущих соединений
         asyncio.run(reset_webhook())
         
-        print("⏳ Подключение к Telegram API...")
+        print("🔐 Установка безопасного подключения к Telegram...")
         application.run_polling(
             drop_pending_updates=True,
-            close_loop=False,
-            allowed_updates=Update.ALL_TYPES,
             connect_timeout=60,
             read_timeout=60,
-            pool_timeout=60,
-            bootstrap_retries=3,  # Дополнительные попытки подключения
+            bootstrap_retries=3
         )
-        print("🟢 Бот успешно запущен")
-    except Conflict as e:
-        print(f"🔴 Критическая ошибка конфликта: {e}")
-        print("🔄 Попытка полного перезапуска через 120 секунд...")
-        time.sleep(120)
-        run_bot(application)
-    except RetryAfter as e:
-        print(f"⏱️ Telegram API требует паузу: {e.retry_after} сек.")
-        time.sleep(e.retry_after + 10)
+        print("✅ Бот работает в безопасном режиме")
+        
+    except Conflict:
+        print("⚠️ Обнаружен конфликт подключений. Перезапуск через 30 сек...")
+        time.sleep(30)
         run_bot(application)
     except Exception as e:
-        print(f"⚠️ Непредвиденная ошибка: {e}")
-        print("🔄 Перезапуск через 60 секунд...")
-        time.sleep(60)
+        print(f"⛑️ Восстановление после ошибки: {e}")
+        time.sleep(15)
         run_bot(application)
 
 if __name__ == "__main__":
     import time
-    print(f"🔑 Используется токен: {TELEGRAM_TOKEN[:10]}...")
-    print("✅ Гарантия единственного экземпляра")
     main()
